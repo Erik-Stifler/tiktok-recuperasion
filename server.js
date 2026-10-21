@@ -49,41 +49,49 @@ const initDb = async () => {
 };
 initDb();
 
-// Función mejorada para obtener el MP4 directo (soporta enlaces cortos y largos de TikTok)
+// Función corregida: Solo devuelve enlaces de video válidos (.mp4) o null
 async function getDirectMp4(tiktokUrl) {
-  if (tiktokUrl.includes('.mp4')) return tiktokUrl;
+  if (tiktokUrl && tiktokUrl.includes('.mp4')) return tiktokUrl;
 
   try {
-    // Intento 1: Petición GET a TikWM con la URL original
+    // Intento 1: Petición GET a TikWM
     const res = await axios.get(`https://www.tikwm.com/api/?hd=1`, {
       params: { url: tiktokUrl },
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-      timeout: 5000,
+      headers: { 
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://www.tikwm.com/'
+      },
+      timeout: 6000,
     });
     
-    if (res.data?.data?.play) {
-      return res.data.data.play;
+    const playUrl = res.data?.data?.play || res.data?.data?.hdplay;
+    if (playUrl) {
+      return playUrl.startsWith('http') ? playUrl : `https://www.tikwm.com${playUrl}`;
     }
 
-    // Intento 2: Petición POST alternativa si el GET falla
+    // Intento 2: Petición POST alternativa
     const resAlt = await axios.post(
       'https://www.tikwm.com/api/',
       new URLSearchParams({ url: tiktokUrl }),
       {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-        timeout: 5000,
+        headers: { 
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+        },
+        timeout: 6000,
       }
     );
     
-    if (resAlt.data?.data?.play) {
-      return resAlt.data.data.play;
+    const playUrlAlt = resAlt.data?.data?.play || resAlt.data?.data?.hdplay;
+    if (playUrlAlt) {
+      return playUrlAlt.startsWith('http') ? playUrlAlt : `https://www.tikwm.com${playUrlAlt}`;
     }
   } catch (err) {
-    console.warn(`⚠️ No se pudo procesar el enlace externo para: ${tiktokUrl}`);
+    console.warn(`⚠️ Error al obtener MP4 para: ${tiktokUrl}`);
   }
 
-  // Respaldo para evitar que falle el bucle si la API externa tarda
-  return tiktokUrl;
+  // Si no se pudo obtener el mp4 directo, retornamos null para descartarlo y evitar romper el reproductor
+  return null;
 }
 
 // ================= RUTAS DE LA API (DEBEN IR PRIMERO) =================
@@ -97,6 +105,7 @@ app.get('/api/videos', async (req, res) => {
     const videos = [];
     for (const url of rawUrls) {
       const streamUrl = await getDirectMp4(url);
+      // Solo agregamos el video si se obtuvo un enlace de reproducción válido (.mp4)
       if (streamUrl) {
         videos.push({
           originalUrl: url,
