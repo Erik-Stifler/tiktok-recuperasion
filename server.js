@@ -23,16 +23,17 @@ const pool = new Pool({
 // Inicializar las tablas automáticamente si no existen
 const initDb = async () => {
   try {
-    // Tabla para los videos principales
+    // 1. Tabla para los videos principales
     await pool.query(`
       CREATE TABLE IF NOT EXISTS videos (
         id SERIAL PRIMARY KEY,
         url TEXT UNIQUE NOT NULL,
+        title VARCHAR,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
-    // Tabla para los "Me gusta"
+    // 2. Tabla separada para los "Me gusta"
     await pool.query(`
       CREATE TABLE IF NOT EXISTS liked_videos (
         id SERIAL PRIMARY KEY,
@@ -48,58 +49,44 @@ const initDb = async () => {
 };
 initDb();
 
-function extractVideoId(url) {
-  const match = url.match(/\/video\/(\d+)/);
-  return match ? match[1] : null;
-}
-
-async function fetchFromTikWM(videoId) {
-  try {
-    const res = await axios.get(`https://www.tikwm.com/api/?hd=1`, {
-      params: { url: `https://www.tiktok.com/@user/video/${videoId}` },
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-      timeout: 4000,
-    });
-    if (res.data?.data?.play) return res.data.data.play;
-  } catch (err) {
-    return null;
-  }
-  return null;
-}
-
-async function fetchFromTikWMAlternative(videoId) {
-  try {
-    const res = await axios.post(
-      'https://www.tikwm.com/api/',
-      new URLSearchParams({ url: `https://www.tiktok.com/@user/video/${videoId}` }),
-      {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-        timeout: 4000,
-      }
-    );
-    if (res.data?.data?.play) return res.data.data.play;
-  } catch (err) {
-    return null;
-  }
-  return null;
-}
-
+// Función mejorada para obtener el MP4 directo (soporta enlaces cortos y largos de TikTok)
 async function getDirectMp4(tiktokUrl) {
   if (tiktokUrl.includes('.mp4')) return tiktokUrl;
 
-  const videoId = extractVideoId(tiktokUrl);
-  if (!videoId) return null;
+  try {
+    // Intento 1: Petición GET a TikWM con la URL original
+    const res = await axios.get(`https://www.tikwm.com/api/?hd=1`, {
+      params: { url: tiktokUrl },
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+      timeout: 5000,
+    });
+    
+    if (res.data?.data?.play) {
+      return res.data.data.play;
+    }
 
-  let mp4 = await fetchFromTikWM(videoId);
-  if (!mp4) {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    mp4 = await fetchFromTikWMAlternative(videoId);
+    // Intento 2: Petición POST alternativa si el GET falla
+    const resAlt = await axios.post(
+      'https://www.tikwm.com/api/',
+      new URLSearchParams({ url: tiktokUrl }),
+      {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+        timeout: 5000,
+      }
+    );
+    
+    if (resAlt.data?.data?.play) {
+      return resAlt.data.data.play;
+    }
+  } catch (err) {
+    console.warn(`⚠️ No se pudo procesar el enlace externo para: ${tiktokUrl}`);
   }
 
-  return mp4;
+  // Respaldo para evitar que falle el bucle si la API externa tarda
+  return tiktokUrl;
 }
 
-// ================= RUTAS DE LA API =================
+// ================= RUTAS DE LA API (DEBEN IR PRIMERO) =================
 
 // Obtener todos los videos desde la tabla 'videos'
 app.get('/api/videos', async (req, res) => {
@@ -116,7 +103,7 @@ app.get('/api/videos', async (req, res) => {
           streamUrl: streamUrl,
         });
       }
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      await new Promise((resolve) => setTimeout(resolve, 300));
     }
 
     res.json(videos);
@@ -126,7 +113,7 @@ app.get('/api/videos', async (req, res) => {
   }
 });
 
-// Insertar un nuevo video en la tabla 'videos' (evitando duplicados con ON CONFLICT)
+// Insertar un nuevo video en la tabla 'videos'
 app.post('/api/videos', async (req, res) => {
   const { url } = req.body;
 
@@ -160,7 +147,7 @@ app.get('/api/likes', async (req, res) => {
   }
 });
 
-// Dar o quitar "Me gusta" (Toggle)
+// Dar o quitar "Me gusta" (Toggle) en la tabla 'liked_videos'
 app.post('/api/likes/toggle', async (req, res) => {
   const { originalUrl } = req.body;
   if (!originalUrl) {
@@ -191,12 +178,12 @@ app.post('/api/likes/toggle', async (req, res) => {
   }
 });
 
-// ================= CONFIGURACIÓN DEL FRONTEND (DIST) =================
+// ================= CONFIGURACIÓN DEL FRONTEND / CATCH-ALL (AL FINAL) =================
 
 // Servir los archivos estáticos generados por Vite
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// Redirigir cualquier otra ruta web al index.html para que el enrutador de React funcione correctamente
+// Redirigir cualquier otra ruta web al index.html de React
 app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
