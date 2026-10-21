@@ -11,8 +11,8 @@ export default function App() {
   const [viewMode, setViewMode] = useState('feed');
   const [initialIndex, setInitialIndex] = useState(0);
 
-  // URL dinámica: Si VITE_BACKEND_URL existe (en producción), la usa. Si no, usa localhost para desarrollo local.
-  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+  // 🚀 Al dejarlo vació (''), las peticiones van directamente al mismo servidor actual (Render o localhost)
+  const BACKEND_URL = '';
 
   const fetchVideos = (resetToTop = false) => {
     setLoading(true);
