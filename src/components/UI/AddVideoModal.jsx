@@ -34,7 +34,8 @@ export default function AddVideoModal({ onVideoAdded }) {
     setLoading(true);
 
     // URL dinámica: Toma la de Render si está configurada, de lo contrario usa localhost para desarrollo
-    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+    // 🚀 Usamos ruta relativa vacía para evitar apuntar a http://localhost:5000
+    const BACKEND_URL = '';
 
     try {
       // Envía cada enlace válido al servidor en bucle

@@ -2,7 +2,8 @@ import React, { forwardRef, useState, useEffect, useRef } from 'react';
 import { Heart, Volume2, VolumeX, Info, Copy, Check, X } from 'lucide-react';
 
 // Declaración de la API Base usando el hostname actual para compatibilidad local y de red
-const API_BASE = `http://${window.location.hostname}:5000`;
+//const API_BASE = `http://${window.location.hostname}:5000`;
+const API_BASE = '';
 
 const VideoCard = forwardRef(({ url, originalUrl, isMuted, onToggleMute }, ref) => {
   const [isLiked, setIsLiked] = useState(false);

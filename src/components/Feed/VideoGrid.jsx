@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Play, Heart, Grid } from 'lucide-react';
 
 // Declaración de la API Base usando el hostname actual para evitar fallos de conexión
-const API_BASE = `http://${window.location.hostname}:5000`;
+//const API_BASE = `http://${window.location.hostname}:5000`;
+const API_BASE = '';
 
 export default function VideoGrid({ videos = [], onSelectVideo }) {
   const [tab, setTab] = useState('all'); // 'all' o 'liked'
