@@ -20,9 +20,19 @@ const pool = new Pool({
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
-// Inicializar la tabla automaticamente si no existe
+// Inicializar las tablas automáticamente si no existen
 const initDb = async () => {
   try {
+    // Tabla para los videos principales
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS videos (
+        id SERIAL PRIMARY KEY,
+        url TEXT UNIQUE NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Tabla para los "Me gusta"
     await pool.query(`
       CREATE TABLE IF NOT EXISTS liked_videos (
         id SERIAL PRIMARY KEY,
@@ -30,7 +40,8 @@ const initDb = async () => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    console.log('✅ Base de datos sincronizada (tabla liked_videos lista)');
+
+    console.log('✅ Base de datos sincronizada (tablas "videos" y "liked_videos" listas)');
   } catch (err) {
     console.error('❌ Error al inicializar la base de datos:', err.message);
   }
@@ -90,7 +101,7 @@ async function getDirectMp4(tiktokUrl) {
 
 // ================= RUTAS DE LA API =================
 
-// Obtener todos los videos
+// Obtener todos los videos desde la tabla 'videos'
 app.get('/api/videos', async (req, res) => {
   try {
     const result = await pool.query('SELECT url FROM videos ORDER BY id DESC');
@@ -105,7 +116,7 @@ app.get('/api/videos', async (req, res) => {
           streamUrl: streamUrl,
         });
       }
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      await new Promise((resolve) => setTimeout(resolve, 400));
     }
 
     res.json(videos);
@@ -115,7 +126,7 @@ app.get('/api/videos', async (req, res) => {
   }
 });
 
-// Insertar un nuevo video
+// Insertar un nuevo video en la tabla 'videos' (evitando duplicados con ON CONFLICT)
 app.post('/api/videos', async (req, res) => {
   const { url } = req.body;
 
@@ -124,7 +135,10 @@ app.post('/api/videos', async (req, res) => {
   }
 
   try {
-    await pool.query('INSERT INTO videos (url) VALUES ($1)', [url]);
+    await pool.query(
+      'INSERT INTO videos (url) VALUES ($1) ON CONFLICT (url) DO NOTHING',
+      [url]
+    );
     res.status(201).json({ message: 'Video guardado con éxito' });
   } catch (err) {
     console.error('❌ Error al insertar video:', err.message);
