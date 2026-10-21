@@ -183,7 +183,7 @@ app.post('/api/likes/toggle', async (req, res) => {
 app.use(express.static(path.join(__dirname, 'dist')));
 
 // Redirigir cualquier otra ruta web al index.html para que el enrutador de React funcione correctamente
-app.get('*', (req, res) => {
+app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
