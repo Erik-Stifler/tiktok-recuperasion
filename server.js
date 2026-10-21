@@ -20,14 +20,15 @@ const pool = new Pool({
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
-// Inicializar las tablas automáticamente si no existen
+// Inicializar las tablas automáticamente con soporte para stream_url
 const initDb = async () => {
   try {
-    // 1. Tabla para los videos principales
+    // 1. Tabla para los videos principales (con columna stream_url para optimizar)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS videos (
         id SERIAL PRIMARY KEY,
         url TEXT UNIQUE NOT NULL,
+        stream_url TEXT,
         title VARCHAR,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -49,12 +50,11 @@ const initDb = async () => {
 };
 initDb();
 
-// Función corregida: Solo devuelve enlaces de video válidos (.mp4) o null
+// Función para obtener el MP4 directo desde TikWM
 async function getDirectMp4(tiktokUrl) {
   if (tiktokUrl && tiktokUrl.includes('.mp4')) return tiktokUrl;
 
   try {
-    // Intento 1: Petición GET a TikWM
     const res = await axios.get(`https://www.tikwm.com/api/?hd=1`, {
       params: { url: tiktokUrl },
       headers: { 
@@ -69,7 +69,6 @@ async function getDirectMp4(tiktokUrl) {
       return playUrl.startsWith('http') ? playUrl : `https://www.tikwm.com${playUrl}`;
     }
 
-    // Intento 2: Petición POST alternativa
     const resAlt = await axios.post(
       'https://www.tikwm.com/api/',
       new URLSearchParams({ url: tiktokUrl }),
@@ -90,30 +89,20 @@ async function getDirectMp4(tiktokUrl) {
     console.warn(`⚠️ Error al obtener MP4 para: ${tiktokUrl}`);
   }
 
-  // Si no se pudo obtener el mp4 directo, retornamos null para descartarlo y evitar romper el reproductor
   return null;
 }
 
 // ================= RUTAS DE LA API (DEBEN IR PRIMERO) =================
 
-// Obtener todos los videos desde la tabla 'videos'
+// Obtener todos los videos de forma ultra rápida desde la base de datos
 app.get('/api/videos', async (req, res) => {
   try {
-    const result = await pool.query('SELECT url FROM videos ORDER BY id DESC');
-    const rawUrls = result.rows.map((row) => row.url);
-
-    const videos = [];
-    for (const url of rawUrls) {
-      const streamUrl = await getDirectMp4(url);
-      // Solo agregamos el video si se obtuvo un enlace de reproducción válido (.mp4)
-      if (streamUrl) {
-        videos.push({
-          originalUrl: url,
-          streamUrl: streamUrl,
-        });
-      }
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    }
+    const result = await pool.query('SELECT url, stream_url FROM videos ORDER BY id DESC');
+    
+    const videos = result.rows.map((row) => ({
+      originalUrl: row.url,
+      streamUrl: row.stream_url || row.url, // Si no hay stream guardado, usa la URL como respaldo
+    }));
 
     res.json(videos);
   } catch (err) {
@@ -122,7 +111,7 @@ app.get('/api/videos', async (req, res) => {
   }
 });
 
-// Insertar un nuevo video en la tabla 'videos'
+// Insertar un nuevo video: resuelve el MP4 una sola vez al guardar
 app.post('/api/videos', async (req, res) => {
   const { url } = req.body;
 
@@ -131,10 +120,15 @@ app.post('/api/videos', async (req, res) => {
   }
 
   try {
+    // Obtenemos el link directo MP4 antes de guardar
+    const streamUrl = await getDirectMp4(url);
+
     await pool.query(
-      'INSERT INTO videos (url) VALUES ($1) ON CONFLICT (url) DO NOTHING',
-      [url]
+      `INSERT INTO videos (url, stream_url) VALUES ($1, $2) 
+       ON CONFLICT (url) DO UPDATE SET stream_url = EXCLUDED.stream_url`,
+      [url, streamUrl]
     );
+
     res.status(201).json({ message: 'Video guardado con éxito' });
   } catch (err) {
     console.error('❌ Error al insertar video:', err.message);
@@ -189,10 +183,8 @@ app.post('/api/likes/toggle', async (req, res) => {
 
 // ================= CONFIGURACIÓN DEL FRONTEND / CATCH-ALL (AL FINAL) =================
 
-// Servir los archivos estáticos generados por Vite
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// Redirigir cualquier otra ruta web al index.html de React
 app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
