@@ -2,9 +2,14 @@ import express from 'express';
 import pkg from 'pg';
 import cors from 'cors';
 import axios from 'axios';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 const { Pool } = pkg;
 const app = express();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 app.use(cors());
 app.use(express.json());
@@ -82,6 +87,8 @@ async function getDirectMp4(tiktokUrl) {
 
   return mp4;
 }
+
+// ================= RUTAS DE LA API =================
 
 // Obtener todos los videos
 app.get('/api/videos', async (req, res) => {
@@ -170,7 +177,19 @@ app.post('/api/likes/toggle', async (req, res) => {
   }
 });
 
+// ================= CONFIGURACIÓN DEL FRONTEND (DIST) =================
+
+// Servir los archivos estáticos generados por Vite
+app.use(express.static(path.join(__dirname, 'dist')));
+
+// Redirigir cualquier otra ruta web al index.html para que el enrutador de React funcione correctamente
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
+
+// ================= INICIO DEL SERVIDOR =================
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Servidor Backend corriendo en puerto ${PORT}`);
+  console.log(`🚀 Servidor Backend y Frontend corriendo en puerto ${PORT}`);
 });

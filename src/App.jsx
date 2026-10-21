@@ -11,9 +11,12 @@ export default function App() {
   const [viewMode, setViewMode] = useState('feed');
   const [initialIndex, setInitialIndex] = useState(0);
 
+  // URL dinámica: Si VITE_BACKEND_URL existe (en producción), la usa. Si no, usa localhost para desarrollo local.
+  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+
   const fetchVideos = (resetToTop = false) => {
     setLoading(true);
-    fetch('http://192.168.1.19:5000/api/videos')
+    fetch(`${BACKEND_URL}/api/videos`)
       .then((res) => res.json())
       .then((data) => {
         setVideos(data);
@@ -23,7 +26,7 @@ export default function App() {
         setLoading(false);
       })
       .catch((err) => {
-        console.error('Error al conectar con PostgreSQL:', err);
+        console.error('Error al conectar con el servidor:', err);
         setLoading(false);
       });
   };
@@ -40,7 +43,7 @@ export default function App() {
   if (loading) {
     return (
       <div className="h-screen w-screen bg-black flex items-center justify-center text-white font-semibold">
-        Cargando videos desde PostgreSQL...
+        Cargando videos desde la nube...
       </div>
     );
   }

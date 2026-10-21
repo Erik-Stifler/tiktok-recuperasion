@@ -20,7 +20,7 @@ export default defineConfig({
         start_url: '/',
         icons: [
           {
-            publc: '/icon-192.png',
+            src: '/icon-192.png', // 👈 Corregido de 'publc' a 'src'
             sizes: '192x192',
             type: 'image/png'
           },
