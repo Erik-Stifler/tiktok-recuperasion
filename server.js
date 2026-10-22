@@ -20,16 +20,14 @@ const pool = new Pool({
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
-// Inicializar las tablas automáticamente con soporte para stream_url
+// Inicializar las tablas automáticamente si no existen
 const initDb = async () => {
   try {
-    // 1. Tabla para los videos principales (con columna stream_url para optimizar)
+    // 1. Tabla para los videos principales (estructura original simple)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS videos (
         id SERIAL PRIMARY KEY,
         url TEXT UNIQUE NOT NULL,
-        stream_url TEXT,
-        title VARCHAR,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
@@ -50,9 +48,10 @@ const initDb = async () => {
 };
 initDb();
 
-// Función para obtener el MP4 directo desde TikWM
+// Función segura para obtener el MP4 directo de TikWM
 async function getDirectMp4(tiktokUrl) {
-  if (tiktokUrl && tiktokUrl.includes('.mp4')) return tiktokUrl;
+  if (!tiktokUrl) return null;
+  if (tiktokUrl.includes('.mp4')) return tiktokUrl;
 
   try {
     const res = await axios.get(`https://www.tikwm.com/api/?hd=1`, {
@@ -61,32 +60,15 @@ async function getDirectMp4(tiktokUrl) {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Referer': 'https://www.tikwm.com/'
       },
-      timeout: 6000,
+      timeout: 5000,
     });
     
     const playUrl = res.data?.data?.play || res.data?.data?.hdplay;
     if (playUrl) {
       return playUrl.startsWith('http') ? playUrl : `https://www.tikwm.com${playUrl}`;
     }
-
-    const resAlt = await axios.post(
-      'https://www.tikwm.com/api/',
-      new URLSearchParams({ url: tiktokUrl }),
-      {
-        headers: { 
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-        },
-        timeout: 6000,
-      }
-    );
-    
-    const playUrlAlt = resAlt.data?.data?.play || resAlt.data?.data?.hdplay;
-    if (playUrlAlt) {
-      return playUrlAlt.startsWith('http') ? playUrlAlt : `https://www.tikwm.com${playUrlAlt}`;
-    }
   } catch (err) {
-    console.warn(`⚠️ Error al obtener MP4 para: ${tiktokUrl}`);
+    // Si falla la API externa, devolvemos null para no romper la app
   }
 
   return null;
@@ -94,24 +76,35 @@ async function getDirectMp4(tiktokUrl) {
 
 // ================= RUTAS DE LA API (DEBEN IR PRIMERO) =================
 
-// Obtener todos los videos de forma ultra rápida desde la base de datos
+// Obtener todos los videos asegurando que SIEMPRE devuelva un arreglo []
 app.get('/api/videos', async (req, res) => {
   try {
-    const result = await pool.query('SELECT url, stream_url FROM videos ORDER BY id DESC');
-    
-    const videos = result.rows.map((row) => ({
-      originalUrl: row.url,
-      streamUrl: row.stream_url || row.url, // Si no hay stream guardado, usa la URL como respaldo
-    }));
+    const result = await pool.query('SELECT url FROM videos ORDER BY id DESC');
+    const rawUrls = result.rows.map((row) => row.url);
 
+    const videos = [];
+    for (const url of rawUrls) {
+      const streamUrl = await getDirectMp4(url);
+      if (streamUrl) {
+        videos.push({
+          originalUrl: url,
+          streamUrl: streamUrl,
+        });
+      }
+      // Pequeña pausa para no saturar TikWM
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+
+    // SIEMPRE responde con un arreglo, evitando el error "e.filter is not a function"
     res.json(videos);
   } catch (err) {
     console.error('❌ Error al consultar PostgreSQL:', err.message);
-    res.status(500).json({ error: 'Error en el servidor', details: err.message });
+    // Ante cualquier error, devolvemos un arreglo vacío para que React no crashee
+    res.json([]);
   }
 });
 
-// Insertar un nuevo video: resuelve el MP4 una sola vez al guardar
+// Insertar un nuevo video en la tabla 'videos'
 app.post('/api/videos', async (req, res) => {
   const { url } = req.body;
 
@@ -120,15 +113,10 @@ app.post('/api/videos', async (req, res) => {
   }
 
   try {
-    // Obtenemos el link directo MP4 antes de guardar
-    const streamUrl = await getDirectMp4(url);
-
     await pool.query(
-      `INSERT INTO videos (url, stream_url) VALUES ($1, $2) 
-       ON CONFLICT (url) DO UPDATE SET stream_url = EXCLUDED.stream_url`,
-      [url, streamUrl]
+      'INSERT INTO videos (url) VALUES ($1) ON CONFLICT (url) DO NOTHING',
+      [url]
     );
-
     res.status(201).json({ message: 'Video guardado con éxito' });
   } catch (err) {
     console.error('❌ Error al insertar video:', err.message);
@@ -146,7 +134,7 @@ app.get('/api/likes', async (req, res) => {
     res.json(likes);
   } catch (err) {
     console.error('❌ Error al obtener likes:', err.message);
-    res.status(500).json({ error: 'Error al obtener likes', details: err.message });
+    res.json([]);
   }
 });
 
@@ -154,7 +142,7 @@ app.get('/api/likes', async (req, res) => {
 app.post('/api/likes/toggle', async (req, res) => {
   const { originalUrl } = req.body;
   if (!originalUrl) {
-    return res.status(400).json({ error: 'La URL original es requerida' });
+    return res.status(400).json({ error: 'La URL original is requerida' });
   }
 
   try {
