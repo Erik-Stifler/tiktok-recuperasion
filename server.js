@@ -48,46 +48,60 @@ const initDb = async () => {
 };
 initDb();
 
-// Función robusta para extraer el enlace .mp4 real mediante TikWM
+// Función robusta con 3 alternativas gratuitas en cascada
 async function getDirectMp4(tiktokUrl) {
   if (!tiktokUrl) return null;
-  if (tiktokUrl.includes('.mp4') && !tiktokUrl.includes('tiktokv.com')) return tiktokUrl;
-
-  try {
-    const res = await axios.get(`https://www.tikwm.com/api/?hd=1`, {
-      params: { url: tiktokUrl },
-      headers: { 
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'https://www.tikwm.com/'
-      },
-      timeout: 6000,
-    });
-    
-    const playUrl = res.data?.data?.play || res.data?.data?.hdplay;
-    if (playUrl) {
-      return playUrl.startsWith('http') ? playUrl : `https://www.tikwm.com${playUrl}`;
-    }
-
-    const resAlt = await axios.post(
-      'https://www.tikwm.com/api/',
-      new URLSearchParams({ url: tiktokUrl }),
-      {
-        headers: { 
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-        },
-        timeout: 6000,
-      }
-    );
-    
-    const playUrlAlt = resAlt.data?.data?.play || resAlt.data?.data?.hdplay;
-    if (playUrlAlt) {
-      return playUrlAlt.startsWith('http') ? playUrlAlt : `https://www.tikwm.com${playUrlAlt}`;
-    }
-  } catch (err) {
-    console.warn(`⚠️ No se pudo obtener el MP4 directo para: ${tiktokUrl}`);
+  
+  // Si ya es un enlace directo .mp4, lo devolvemos tal cual
+  if (tiktokUrl.includes('.mp4') || tiktokUrl.includes('.webm')) {
+    return tiktokUrl;
   }
 
+  // Lista de APIs gratuitas y de código abierto
+  const apis = [
+    {
+      name: 'TikWM (Principal)',
+      url: `https://www.tikwm.com/api/?url=${encodeURIComponent(tiktokUrl)}`,
+      extract: (data) => data?.data?.play || data?.data?.hdplay
+    },
+    {
+      name: 'TiklyDown (Alternativa 1)',
+      url: `https://api.tiklydown.eu.org/api/download?url=${encodeURIComponent(tiktokUrl)}`,
+      extract: (data) => data?.data?.video?.url || data?.data?.video?.no_watermark || data?.data?.video
+    },
+    {
+      name: 'SL-BJS Workers (Alternativa 2)',
+      url: `https://tdownv4.sl-bjs.workers.dev/?down=${encodeURIComponent(tiktokUrl)}`,
+      extract: (data) => data?.data?.video_url || data?.data?.url || data?.url
+    }
+  ];
+
+  for (const api of apis) {
+    try {
+      console.log(`🔄 Intentando extraer video con: ${api.name}...`);
+      
+      const res = await axios.get(api.url, {
+        headers: { 
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json'
+        },
+        timeout: 8000, // 8 segundos de tiempo límite
+      });
+      
+      const playUrl = api.extract(res.data);
+      
+      // Validamos que sea una URL válida
+      if (playUrl && typeof playUrl === 'string' && playUrl.startsWith('http')) {
+        console.log(`✅ ¡Éxito! Video obtenido con ${api.name}`);
+        return playUrl;
+      }
+    } catch (err) {
+      console.warn(`⚠️ ${api.name} falló:`, err.message);
+      // Continúa con la siguiente API en la lista
+    }
+  }
+
+  console.error(`❌ Todas las APIs gratuitas fallaron para: ${tiktokUrl}`);
   return null;
 }
 
@@ -98,59 +112,40 @@ async function getDirectMp4(tiktokUrl) {
 // Obtener todos los videos - VERSIÓN CORREGIDA
 app.get('/api/videos', async (req, res) => {
   try {
-    console.log('📊 Consultando videos...');
     const result = await pool.query(`
       SELECT id, url, title, created_at 
       FROM videos 
       ORDER BY created_at DESC
     `);
     
-    console.log(`✅ Encontrados ${result.rows.length} videos`);
-    
     const videos = [];
-    
     for (const row of result.rows) {
       let streamUrl = null;
       
-      // Si ya es un enlace directo .mp4
       if (row.url.includes('.mp4') || row.url.includes('.webm')) {
         streamUrl = row.url;
       } else {
-        // Intentar obtener con TikWM
-        try {
-          streamUrl = await getDirectMp4(row.url);
-        } catch (err) {
-          console.warn(`⚠️ No se pudo procesar video ${row.id}`);
-        }
+        streamUrl = await getDirectMp4(row.url);
       }
 
       videos.push({
         id: row.id,
         originalUrl: row.url,
-        title: row.title || 'Video',
-        streamUrl: streamUrl, // Puede ser null
+        title: row.title || 'Video de TikTok',
+        streamUrl: streamUrl, // Se envía aunque sea null (el frontend lo manejará)
         created_at: row.created_at
       });
       
-      // Pequeña pausa para no saturar la API
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Pausa de 150ms para no saturar las APIs gratuitas
+      await new Promise(resolve => setTimeout(resolve, 150));
     }
 
-    res.json({
-      success: true,
-      count: videos.length,
-      videos: videos
-    });
-    
+    res.json({ success: true, count: videos.length, videos });
   } catch (err) {
-    console.error('❌ Error:', err.message);
-    res.status(500).json({ 
-      success: false, 
-      error: err.message,
-      videos: []
-    });
+    console.error('❌ Error en /api/videos:', err.message);
+    res.status(500).json({ success: false, error: err.message, videos: [] });
   }
-});
+}); 
 // Insertar un nuevo video de forma segura (evita duplicados sin requerir índice UNIQUE)
 app.post('/api/videos', async (req, res) => {
   const { url } = req.body;
