@@ -27,7 +27,7 @@ const initDb = async () => {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS videos (
         id SERIAL PRIMARY KEY,
-        url TEXT UNIQUE NOT NULL,
+        url TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
@@ -36,7 +36,7 @@ const initDb = async () => {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS liked_videos (
         id SERIAL PRIMARY KEY,
-        original_url TEXT UNIQUE NOT NULL,
+        original_url TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
@@ -54,7 +54,6 @@ async function getDirectMp4(tiktokUrl) {
   if (tiktokUrl.includes('.mp4') && !tiktokUrl.includes('tiktokv.com')) return tiktokUrl;
 
   try {
-    // Petición GET a TikWM
     const res = await axios.get(`https://www.tikwm.com/api/?hd=1`, {
       params: { url: tiktokUrl },
       headers: { 
@@ -69,7 +68,6 @@ async function getDirectMp4(tiktokUrl) {
       return playUrl.startsWith('http') ? playUrl : `https://www.tikwm.com${playUrl}`;
     }
 
-    // Petición POST alternativa si el GET no devuelve el play
     const resAlt = await axios.post(
       'https://www.tikwm.com/api/',
       new URLSearchParams({ url: tiktokUrl }),
@@ -90,13 +88,12 @@ async function getDirectMp4(tiktokUrl) {
     console.warn(`⚠️ No se pudo obtener el MP4 directo para: ${tiktokUrl}`);
   }
 
-  // Si todo falla, devolvemos null para evitar el bloqueo CORB de tiktokv
   return null;
 }
 
 // ================= RUTAS DE LA API (DEBEN IR PRIMERO) =================
 
-// Obtener todos los videos filtrando solo los que tienen enlace de reproducción válido
+// Obtener todos los videos
 app.get('/api/videos', async (req, res) => {
   try {
     const result = await pool.query('SELECT url FROM videos ORDER BY id DESC');
@@ -121,7 +118,7 @@ app.get('/api/videos', async (req, res) => {
   }
 });
 
-// Insertar un nuevo video en la tabla 'videos'
+// Insertar un nuevo video de forma segura (evita duplicados sin requerir índice UNIQUE)
 app.post('/api/videos', async (req, res) => {
   const { url } = req.body;
 
@@ -130,10 +127,12 @@ app.post('/api/videos', async (req, res) => {
   }
 
   try {
-    await pool.query(
-      'INSERT INTO videos (url) VALUES ($1) ON CONFLICT (url) DO NOTHING',
-      [url]
-    );
+    // Verificamos si ya existe antes de insertar
+    const check = await pool.query('SELECT id FROM videos WHERE url = $1', [url]);
+    if (check.rows.length === 0) {
+      await pool.query('INSERT INTO videos (url) VALUES ($1)', [url]);
+    }
+    
     res.status(201).json({ message: 'Video guardado con éxito' });
   } catch (err) {
     console.error('❌ Error al insertar video:', err.message);
