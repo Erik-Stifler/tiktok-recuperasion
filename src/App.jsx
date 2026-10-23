@@ -14,19 +14,37 @@ export default function App() {
   // 🚀 Al dejarlo vació (''), las peticiones van directamente al mismo servidor actual (Render o localhost)
   const BACKEND_URL = '';
 
-  const fetchVideos = (resetToTop = false) => {
+    const fetchVideos = (resetToTop = false) => {
     setLoading(true);
     fetch(`${BACKEND_URL}/api/videos`)
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`Error HTTP: ${res.status}`);
+        return res.json();
+      })
       .then((data) => {
-        setVideos(data);
+        // 🛡️ BLINDAJE: Forzamos que videoArray sea SIEMPRE un array
+        let videoArray = [];
+        
+        if (Array.isArray(data)) {
+          videoArray = data;
+        } else if (data && Array.isArray(data.videos)) {
+          videoArray = data.videos;
+        } else if (data && Array.isArray(data.data)) {
+          videoArray = data.data; // Por si el backend envía { data: { videos: [...] } }
+        }
+        
+        console.log("✅ Videos procesados (Array garantizado):", videoArray.length);
+        
+        setVideos(videoArray);
+        
         if (resetToTop) {
-          setInitialIndex(0); // 👈 Forzar inicio en el video más reciente
+          setInitialIndex(0);
         }
         setLoading(false);
       })
       .catch((err) => {
-        console.error('Error al conectar con el servidor:', err);
+        console.error('❌ Error al conectar con el servidor:', err);
+        setVideos([]); // 🛡️ Si falla, garantizamos un array vacío, no undefined
         setLoading(false);
       });
   };

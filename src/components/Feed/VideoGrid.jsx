@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Heart, Grid } from 'lucide-react';
+import { Play, Heart, Grid, AlertCircle } from 'lucide-react';
 
-// Declaración de la API Base usando el hostname actual para evitar fallos de conexión
-//const API_BASE = `http://${window.location.hostname}:5000`;
 const API_BASE = '';
 
-export default function VideoGrid({ videos = [], onSelectVideo }) {
-  const [tab, setTab] = useState('all'); // 'all' o 'liked'
+export default function VideoGrid({ videos, onSelectVideo }) {
+  const [tab, setTab] = useState('all');
   const [likedUrls, setLikedUrls] = useState([]);
+
+  // 🛡️ BLINDAJE CRÍTICO: Garantizamos que safeVideos sea SIEMPRE un array
+  const safeVideos = Array.isArray(videos) ? videos : [];
 
   const fetchLikes = async () => {
     try {
@@ -24,14 +25,14 @@ export default function VideoGrid({ videos = [], onSelectVideo }) {
     fetchLikes();
   }, []);
 
-  // Comprueba si el video está guardado en la BD
   const isVideoLiked = (item) => {
     const original = typeof item === 'string' ? item : item?.originalUrl;
     return likedUrls.includes(original);
   };
 
-  const likedVideosList = videos.filter(isVideoLiked);
-  const displayedVideos = tab === 'liked' ? likedVideosList : videos;
+  // 🛡️ Ahora .filter() se ejecuta sobre safeVideos, que sabemos que es un array
+  const likedVideosList = safeVideos.filter(isVideoLiked);
+  const displayedVideos = tab === 'liked' ? likedVideosList : safeVideos;
 
   return (
     <div className="w-full h-full bg-black text-white p-4 md:p-8 pt-20 overflow-y-auto">
@@ -45,7 +46,7 @@ export default function VideoGrid({ videos = [], onSelectVideo }) {
               : 'text-gray-400 hover:text-white'
           }`}
         >
-          <Grid className="w-4 h-4" /> Todos ({videos.length})
+          <Grid className="w-4 h-4" /> Todos ({safeVideos.length})
         </button>
 
         <button
@@ -74,26 +75,35 @@ export default function VideoGrid({ videos = [], onSelectVideo }) {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 pb-24">
           {displayedVideos.map((item, index) => {
             const streamUrl = typeof item === 'string' ? item : item.streamUrl;
-            const originalIndex = videos.indexOf(item);
+            const originalUrl = typeof item === 'string' ? item : item.originalUrl;
+            // Encontramos el índice real en el array original para la navegación
+            const originalIndex = safeVideos.indexOf(item);
 
             return (
               <div
-                key={`${streamUrl}-${index}`}
+                key={`${originalUrl}-${index}`}
                 onClick={() => onSelectVideo(originalIndex)}
                 className="relative aspect-[3/4] bg-slate-900 rounded-xl overflow-hidden group cursor-pointer border border-white/10 hover:border-pink-500 transition-all duration-300 shadow-lg"
               >
-                <video
-                  src={`${streamUrl}#t=0.1`}
-                  preload="metadata"
-                  muted
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                />
+                {streamUrl ? (
+                  <video
+                    src={`${streamUrl}#t=0.1`}
+                    preload="metadata"
+                    muted
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center bg-slate-800 text-gray-400 p-2 text-center">
+                    <AlertCircle className="w-6 h-6 mb-1 text-yellow-500" />
+                    <span className="text-[10px]">Sin vista previa</span>
+                  </div>
+                )}
 
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-90" />
 
                 <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1 text-xs font-semibold text-white drop-shadow">
                   <Play className="w-3.5 h-3.5 fill-white" />
-                  <span>{(Math.random() * 80 + 10).toFixed(1)}K</span>
+                  <span>Video</span>
                 </div>
               </div>
             );

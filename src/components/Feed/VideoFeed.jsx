@@ -141,16 +141,12 @@ export default function VideoFeed({
       </div>
     );
   }
-
-  return (
+    return (
     <div className="relative w-screen h-screen overflow-hidden bg-black select-none">
       <div className="fixed right-5 top-1/2 -translate-y-1/2 z-50 flex flex-col gap-4 pointer-events-auto">
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            scrollPrev();
-          }}
+          onClick={(e) => { e.stopPropagation(); scrollPrev(); }}
           className="p-3.5 rounded-full bg-black/70 border border-white/20 text-white hover:bg-cyan-500 hover:text-black transition-all duration-200 shadow-2xl active:scale-90 backdrop-blur-md cursor-pointer group"
           title="Video anterior"
         >
@@ -158,10 +154,7 @@ export default function VideoFeed({
         </button>
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            scrollNext();
-          }}
+          onClick={(e) => { e.stopPropagation(); scrollNext(); }}
           className="p-3.5 rounded-full bg-black/70 border border-white/20 text-white hover:bg-cyan-500 hover:text-black transition-all duration-200 shadow-2xl active:scale-90 backdrop-blur-md cursor-pointer group"
           title="Siguiente video"
         >
@@ -174,30 +167,34 @@ export default function VideoFeed({
         onScroll={handleScroll}
         onClick={handleContainerClick}
         className="w-full h-full overflow-y-scroll snap-y snap-mandatory no-scrollbar touch-pan-y"
-      > 
-      // Ubica el bloque .map dentro del retorno de VideoFeed.jsx y reemplázalo por:
-{safeVideos.map((item, index) => {
-  const streamUrl = typeof item === 'string' ? item : item.streamUrl;
-  const originalUrl = typeof item === 'string' ? item : item.originalUrl;
-  const isNearby = Math.abs(activeIndex - index) <= 1;
-  const preloadStrategy = isNearby ? 'auto' : 'metadata';
+      >
+        {/* ✅ MAPEO CORREGIDO Y SEGURO */}
+        {safeVideos.map((item, index) => {
+          const streamUrl = typeof item === 'string' ? item : item.streamUrl;
+          const originalUrl = typeof item === 'string' ? item : item.originalUrl;
+          const title = typeof item === 'string' ? 'Video' : (item.title || 'Video de TikTok');
+          
+          const isNearby = Math.abs(activeIndex - index) <= 1;
+          const preloadStrategy = isNearby ? 'auto' : 'metadata';
 
-  return (
-    <VideoCard
-      key={`${streamUrl}-${index}`}
-      url={streamUrl}
-      originalUrl={originalUrl}
-      index={index}
-      isMuted={isMuted}
-      onToggleMute={onToggleMute}
-      onError={onError}
-      preload={preloadStrategy}
-      ref={(el) => (videoRefs.current[index] = el)}
-    />
-  );
-})}
-        
+          return (
+            <VideoCard
+              key={`${originalUrl}-${index}`}
+              url={streamUrl}
+              originalUrl={originalUrl}
+              title={title}
+              index={index}
+              isMuted={isMuted}
+              onToggleMute={onToggleMute}
+              onError={onError}
+              preload={preloadStrategy}
+              ref={(el) => (videoRefs.current[index] = el)}
+            />
+          );
+        })}
       </main>
     </div>
   );
 }
+
+  
