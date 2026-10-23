@@ -95,62 +95,62 @@ async function getDirectMp4(tiktokUrl) {
 
 // Obtener todos los videos
 // Obtener todos los videos (VERSIÓN CORREGIDA Y ROBUSTA)
+// Obtener todos los videos - VERSIÓN CORREGIDA
 app.get('/api/videos', async (req, res) => {
   try {
-    console.log('📊 Consultando videos en la base de datos...');
-    
-    // 1. Obtener TODOS los datos (id es crucial para los likes)
+    console.log('📊 Consultando videos...');
     const result = await pool.query(`
       SELECT id, url, title, created_at 
       FROM videos 
       ORDER BY created_at DESC
     `);
     
-    console.log(`✅ Encontrados ${result.rows.length} videos en la BD.`);
-
-    // 2. Procesar los videos en paralelo (más rápido que el bucle for con setTimeout)
-    const videos = await Promise.all(result.rows.map(async (row) => {
+    console.log(`✅ Encontrados ${result.rows.length} videos`);
+    
+    const videos = [];
+    
+    for (const row of result.rows) {
       let streamUrl = null;
       
-      // Si la URL ya es un mp4 directo, usarla inmediatamente
-      if (row.url.includes('.mp4')) {
+      // Si ya es un enlace directo .mp4
+      if (row.url.includes('.mp4') || row.url.includes('.webm')) {
         streamUrl = row.url;
       } else {
-        // Intentar obtener el enlace directo con TikWM
+        // Intentar obtener con TikWM
         try {
           streamUrl = await getDirectMp4(row.url);
-        } catch (error) {
-          console.warn(`⚠️ No se pudo procesar el video ID ${row.id} con TikWM`);
+        } catch (err) {
+          console.warn(`⚠️ No se pudo procesar video ${row.id}`);
         }
       }
 
-      return {
+      videos.push({
         id: row.id,
         originalUrl: row.url,
-        title: row.title || 'Video de TikTok',
-        streamUrl: streamUrl, // Puede ser null, pero el video SE ENVÍA al frontend
+        title: row.title || 'Video',
+        streamUrl: streamUrl, // Puede ser null
         created_at: row.created_at
-      };
-    }));
+      });
+      
+      // Pequeña pausa para no saturar la API
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
 
-    // 3. Enviar TODOS los videos al frontend
     res.json({
       success: true,
       count: videos.length,
       videos: videos
     });
-
+    
   } catch (err) {
-    console.error('❌ ERROR CRÍTICO al obtener videos:', err.message);
-    // Enviar el error real para poder depurarlo, NO un array vacío
+    console.error('❌ Error:', err.message);
     res.status(500).json({ 
       success: false, 
-      error: 'Error al obtener los videos', 
-      details: err.message 
+      error: err.message,
+      videos: []
     });
   }
 });
-
 // Insertar un nuevo video de forma segura (evita duplicados sin requerir índice UNIQUE)
 app.post('/api/videos', async (req, res) => {
   const { url } = req.body;
