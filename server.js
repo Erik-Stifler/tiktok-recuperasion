@@ -23,7 +23,7 @@ const pool = new Pool({
 // Inicializar las tablas automáticamente si no existen
 const initDb = async () => {
   try {
-    // 1. Tabla para los videos principales (estructura original simple)
+    // 1. Tabla para los videos principales
     await pool.query(`
       CREATE TABLE IF NOT EXISTS videos (
         id SERIAL PRIMARY KEY,
@@ -48,58 +48,55 @@ const initDb = async () => {
 };
 initDb();
 
-// Función blindada: Si TikWM falla, devuelve la URL original como respaldo para que nunca desaparezca el video
+// Función robusta para extraer el enlace .mp4 real mediante TikWM
 async function getDirectMp4(tiktokUrl) {
   if (!tiktokUrl) return null;
-  if (tiktokUrl.includes('.mp4')) return tiktokUrl;
+  if (tiktokUrl.includes('.mp4') && !tiktokUrl.includes('tiktokv.com')) return tiktokUrl;
 
   try {
+    // Petición GET a TikWM
     const res = await axios.get(`https://www.tikwm.com/api/?hd=1`, {
       params: { url: tiktokUrl },
       headers: { 
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Referer': 'https://www.tikwm.com/'
       },
-      timeout: 4000,
+      timeout: 6000,
     });
     
     const playUrl = res.data?.data?.play || res.data?.data?.hdplay;
     if (playUrl) {
       return playUrl.startsWith('http') ? playUrl : `https://www.tikwm.com${playUrl}`;
     }
-  } catch (err) {
-    // Si falla la API externa, no descartamos el video: usamos la URL original como respaldo
-  }
 
-  return tiktokUrl;
-}
-
-// Obtener todos los videos asegurando que NUNCA devuelva un arreglo vacío si hay datos en la BD
-app.get('/api/videos', async (req, res) => {
-  try {
-    const result = await pool.query('SELECT url FROM videos ORDER BY id DESC');
-    const rawUrls = result.rows.map((row) => row.url);
-
-    const videos = [];
-    for (const url of rawUrls) {
-      const streamUrl = await getDirectMp4(url);
-      videos.push({
-        originalUrl: url,
-        // Si streamUrl viene nulo, usamos la URL original para que al menos se muestre en la interfaz
-        streamUrl: streamUrl || url,
-      });
+    // Petición POST alternativa si el GET no devuelve el play
+    const resAlt = await axios.post(
+      'https://www.tikwm.com/api/',
+      new URLSearchParams({ url: tiktokUrl }),
+      {
+        headers: { 
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+        },
+        timeout: 6000,
+      }
+    );
+    
+    const playUrlAlt = resAlt.data?.data?.play || resAlt.data?.data?.hdplay;
+    if (playUrlAlt) {
+      return playUrlAlt.startsWith('http') ? playUrlAlt : `https://www.tikwm.com${playUrlAlt}`;
     }
-
-    res.json(videos);
   } catch (err) {
-    console.error('❌ Error al consultar PostgreSQL:', err.message);
-    res.json([]);
+    console.warn(`⚠️ No se pudo obtener el MP4 directo para: ${tiktokUrl}`);
   }
-});
+
+  // Si todo falla, devolvemos null para evitar el bloqueo CORB de tiktokv
+  return null;
+}
 
 // ================= RUTAS DE LA API (DEBEN IR PRIMERO) =================
 
-// Obtener todos los videos asegurando que SIEMPRE devuelva un arreglo []
+// Obtener todos los videos filtrando solo los que tienen enlace de reproducción válido
 app.get('/api/videos', async (req, res) => {
   try {
     const result = await pool.query('SELECT url FROM videos ORDER BY id DESC');
@@ -114,15 +111,12 @@ app.get('/api/videos', async (req, res) => {
           streamUrl: streamUrl,
         });
       }
-      // Pequeña pausa para no saturar TikWM
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      await new Promise((resolve) => setTimeout(resolve, 200));
     }
 
-    // SIEMPRE responde con un arreglo, evitando el error "e.filter is not a function"
     res.json(videos);
   } catch (err) {
     console.error('❌ Error al consultar PostgreSQL:', err.message);
-    // Ante cualquier error, devolvemos un arreglo vacío para que React no crashee
     res.json([]);
   }
 });
@@ -165,7 +159,7 @@ app.get('/api/likes', async (req, res) => {
 app.post('/api/likes/toggle', async (req, res) => {
   const { originalUrl } = req.body;
   if (!originalUrl) {
-    return res.status(400).json({ error: 'La URL original is requerida' });
+    return res.status(400).json({ error: 'La URL original es requerida' });
   }
 
   try {
