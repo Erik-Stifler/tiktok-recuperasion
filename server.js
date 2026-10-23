@@ -48,7 +48,7 @@ const initDb = async () => {
 };
 initDb();
 
-// Función segura para obtener el MP4 directo de TikWM
+// Función blindada: Si TikWM falla, devuelve la URL original como respaldo para que nunca desaparezca el video
 async function getDirectMp4(tiktokUrl) {
   if (!tiktokUrl) return null;
   if (tiktokUrl.includes('.mp4')) return tiktokUrl;
@@ -60,7 +60,7 @@ async function getDirectMp4(tiktokUrl) {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Referer': 'https://www.tikwm.com/'
       },
-      timeout: 5000,
+      timeout: 4000,
     });
     
     const playUrl = res.data?.data?.play || res.data?.data?.hdplay;
@@ -68,11 +68,34 @@ async function getDirectMp4(tiktokUrl) {
       return playUrl.startsWith('http') ? playUrl : `https://www.tikwm.com${playUrl}`;
     }
   } catch (err) {
-    // Si falla la API externa, devolvemos null para no romper la app
+    // Si falla la API externa, no descartamos el video: usamos la URL original como respaldo
   }
 
-  return null;
+  return tiktokUrl;
 }
+
+// Obtener todos los videos asegurando que NUNCA devuelva un arreglo vacío si hay datos en la BD
+app.get('/api/videos', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT url FROM videos ORDER BY id DESC');
+    const rawUrls = result.rows.map((row) => row.url);
+
+    const videos = [];
+    for (const url of rawUrls) {
+      const streamUrl = await getDirectMp4(url);
+      videos.push({
+        originalUrl: url,
+        // Si streamUrl viene nulo, usamos la URL original para que al menos se muestre en la interfaz
+        streamUrl: streamUrl || url,
+      });
+    }
+
+    res.json(videos);
+  } catch (err) {
+    console.error('❌ Error al consultar PostgreSQL:', err.message);
+    res.json([]);
+  }
+});
 
 // ================= RUTAS DE LA API (DEBEN IR PRIMERO) =================
 
